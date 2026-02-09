@@ -17,11 +17,12 @@ async function translatePage() {
   isTranslating = true;
 
   const settings = await new Promise(resolve => {
-    chrome.storage.local.get(['sourceLang', 'targetLang'], resolve);
+    chrome.storage.local.get(['sourceLang', 'targetLang', 'ignoredLanguages'], resolve);
   });
 
   const preferredSource = settings.sourceLang || 'auto';
   const preferredTarget = settings.targetLang || 'en';
+  const ignoredLanguages = settings.ignoredLanguages || [];
 
   if (!('Translator' in window)) {
     console.log('TranslateKit: Translation API not available.');
@@ -49,6 +50,13 @@ async function translatePage() {
 
   if (finalSource.includes('-')) finalSource = finalSource.split('-')[0];
   console.log(`TranslateKit: Translating ${finalSource} -> ${preferredTarget}`);
+
+  // Check if language is ignored
+  if (ignoredLanguages.includes(finalSource)) {
+    console.log(`TranslateKit: ${finalSource} is in the ignored list. Skipping.`);
+    isTranslating = false;
+    return;
+  }
 
   if (finalSource === preferredTarget) {
     isTranslating = false;

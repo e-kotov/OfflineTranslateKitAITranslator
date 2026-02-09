@@ -29,7 +29,56 @@ document.addEventListener('DOMContentLoaded', () => {
     el.textContent = browser;
   });
 
-  // 2. Click-to-Copy Functionality
+  // 2. Ignored Languages Logic
+  const languages = [
+    { code: 'en', name: 'English' },
+    { code: 'de', name: 'German' },
+    { code: 'fr', name: 'French' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'it', name: 'Italian' },
+    { code: 'pt', name: 'Portuguese' },
+    { code: 'ru', name: 'Russian' },
+    { code: 'zh', name: 'Chinese' },
+    { code: 'ja', name: 'Japanese' },
+    { code: 'ko', name: 'Korean' }
+  ];
+
+  const ignoredListEl = document.getElementById('ignoredLanguagesList');
+  
+  chrome.storage.local.get(['ignoredLanguages'], (result) => {
+    const ignored = result.ignoredLanguages || [];
+    
+    languages.forEach(lang => {
+      const label = document.createElement('label');
+      label.style.display = 'flex';
+      label.style.alignItems = 'center';
+      label.style.cursor = 'pointer';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = lang.code;
+      checkbox.checked = ignored.includes(lang.code);
+      checkbox.style.marginRight = '8px';
+      
+      checkbox.addEventListener('change', () => {
+        chrome.storage.local.get(['ignoredLanguages'], (current) => {
+          let list = current.ignoredLanguages || [];
+          if (checkbox.checked) {
+            if (!list.includes(lang.code)) list.push(lang.code);
+          } else {
+            list = list.filter(c => c !== lang.code);
+          }
+          chrome.storage.local.set({ ignoredLanguages: list });
+        });
+      });
+      
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(lang.name));
+      ignoredListEl.appendChild(label);
+    });
+  });
+
+  // 3. Click-to-Copy Functionality
   urlContainers.forEach(container => {
     container.addEventListener('click', () => {
       const path = container.getAttribute('data-url');
