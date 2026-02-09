@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>TranslateKit Settings & Setup</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 40px auto; padding: 20px; color: #333; }
+    h1 { color: #4285f4; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+    h2 { font-size: 1.2em; margin-top: 30px; color: #555; }
+    .card { background: #f9f9f9; padding: 15px; border-radius: 8px; border-left: 5px solid #4285f4; margin-bottom: 20px; }
+    
+    .url-container {
+      position: relative;
+      display: flex;
+      align-items: center;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin: 10px 0;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .url-container:hover { border-color: #4285f4; background: #f0f7ff; }
+    .url-container:active { transform: translateY(1px); }
+    
+    .url-box {
+      flex-grow: 1;
+      padding: 10px;
+      font-family: monospace;
+      color: #d93025;
+      font-weight: bold;
+      font-size: 0.95em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .copy-hint {
+      padding: 0 10px;
+      color: #777;
+      font-size: 0.8em;
+      border-left: 1px solid #eee;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      display: none;
+      z-index: 1000;
+    }
+
+    .hint { font-size: 0.9em; color: #666; font-style: italic; }
+    strong.browser-name { color: #4285f4; }
+  </style>
+</head>
+<body>
+  <h1>TranslateKit AI Setup</h1>
+  <p>Detected Browser: <strong id="browserName" class="browser-name">Chromium</strong></p>
+  
+  <div class="card">
+    <h2>1. Enable Required Feature Flags</h2>
+    <p>Click each box to copy the link, then paste it into your address bar and set to <strong>Enabled</strong>:</p>
+    
+    <div class="url-container" data-url="flags/#translation-api">
+      <div class="url-box"><span class="prefix">brave</span>://flags/#translation-api</div>
+      <div class="copy-hint">Click to Copy</div>
+    </div>
+    <span class="hint">Enables the on-device language translation API.</span>
+
+    <div class="url-container" data-url="flags/#translation-api-streaming-by-sentence">
+      <div class="url-box"><span class="prefix">brave</span>://flags/#translation-api-streaming-by-sentence</div>
+      <div class="copy-hint">Click to Copy</div>
+    </div>
+    <span class="hint">Enables sentence-split streaming for optimization.</span>
+
+    <div class="url-container" data-url="flags/#optimization-guide-on-device-model">
+      <div class="url-box"><span class="prefix">brave</span>://flags/#optimization-guide-on-device-model</div>
+      <div class="copy-hint">Click to Copy</div>
+    </div>
+    <span class="hint">Enables the optimization guide to execute models on device.</span>
+
+    <p><em>Note: Restart your browser after changing these flags.</em></p>
+  </div>
+
+  <div class="card">
+    <h2>2. Install Language Packs</h2>
+    <p>Manage and download offline language models here:</p>
+    <div class="url-container" data-url="on-device-translation-internals/">
+      <div class="url-box"><span class="prefix">brave</span>://on-device-translation-internals/</div>
+      <div class="copy-hint">Click to Copy</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. Check Component Updates</h2>
+    <p>Ensure your "Optimization Guide On Device Model" is up to date:</p>
+    <div class="url-container" data-url="components/">
+      <div class="url-box"><span class="prefix">brave</span>://components/</div>
+      <div class="copy-hint">Click to Copy</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4. Customize Shortcuts</h2>
+    <p>Default shortcut is <strong>Alt + T</strong>. Change it here:</p>
+    <div class="url-container" data-url="extensions/shortcuts">
+      <div class="url-box"><span class="prefix">brave</span>://extensions/shortcuts</div>
+      <div class="copy-hint">Click to Copy</div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Link copied to clipboard!</div>
+
+  <script src="options.js"></script>
+</body>
+</html>
