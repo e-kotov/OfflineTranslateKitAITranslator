@@ -70,6 +70,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  document.getElementById('forceTranslateBtn').addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab) {
+      chrome.tabs.sendMessage(tab.id, { action: 'translate', force: true });
+      window.close();
+    }
+  });
+
   undoBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
