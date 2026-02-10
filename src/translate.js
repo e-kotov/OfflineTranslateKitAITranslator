@@ -83,9 +83,24 @@ async function translatePage(options = {}) {
       if (canDetect !== 'no') {
         const detector = await window.LanguageDetector.create();
         const results = await detector.detect(document.body.innerText.substring(0, 2000));
-        if (results && results.length > 0) finalSource = results[0].detectedLanguage;
+        if (results && results.length > 0) {
+          finalSource = results[0].detectedLanguage;
+        }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('TranslateKit: Detection error', e);
+    }
+
+    // Fallback 1: HTML lang attribute
+    if (!finalSource || finalSource === 'auto') {
+      finalSource = document.documentElement.lang || document.body.parentElement.lang;
+    }
+
+    // Fallback 2: Default to German if still unknown (Translator.create requires a valid tag)
+    if (!finalSource || finalSource === 'auto' || finalSource.length < 2) {
+      console.log('TranslateKit: Could not detect language, falling back to "de"');
+      finalSource = 'de';
+    }
   }
 
   if (finalSource.includes('-')) finalSource = finalSource.split('-')[0];
