@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Offline TranslateKit AI Translator",
-  "version": "1.2",
-  "description": "Automatically translates pages using Translation API. Includes manual controls and setup info.",
+  "version": "1.2.1",
+  "author": "e-kotov",
+  "homepage_url": "https://github.com/e-kotov/OfflineTranslateKitAITranslator",
+  "description": "Automatically translates pages using Translation API. 100% on-device and privacy-first.",
   "permissions": ["scripting", "storage", "activeTab"],
   "host_permissions": ["<all_urls>"],
   "background": {
