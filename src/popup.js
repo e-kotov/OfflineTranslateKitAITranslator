@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   translateBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
-      chrome.tabs.sendMessage(tab.id, { action: 'translate' });
+      chrome.tabs.sendMessage(tab.id, { action: 'toggle' });
       window.close();
     }
   });

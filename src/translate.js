@@ -138,6 +138,13 @@ async function translatePage() {
 chrome.runtime.onMessage.addListener((request) => {
   if (request.action === 'translate') translatePage();
   if (request.action === 'undo') undoTranslation();
+  if (request.action === 'toggle') {
+    if (originalTexts.size > 0) {
+      undoTranslation();
+    } else {
+      translatePage();
+    }
+  }
 });
 
 (async () => {
