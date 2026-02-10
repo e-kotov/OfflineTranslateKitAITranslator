@@ -23,7 +23,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   prefixes.forEach(el => el.textContent = browser);
 
   // 2. Build Language List
-  // Standard list of languages often supported by on-device models
   const allCodes = [
     'ar', 'bg', 'bn', 'ca', 'cs', 'da', 'de', 'el', 'en', 'es', 'et', 'fa', 'fi', 'fr', 'gu', 
     'he', 'hi', 'hr', 'hu', 'id', 'it', 'ja', 'kn', 'ko', 'lt', 'lv', 'ml', 'mr', 'ms', 'nl', 
@@ -31,57 +30,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     'ur', 'vi', 'zh'
   ];
 
-  // Helper to get nice names (e.g. "en" -> "English")
   const displayNames = new Intl.DisplayNames(['en'], { type: 'language' });
-
-  // Filter supported languages (if API is available)
   let supportedCodes = allCodes;
   
-  if ('translation' in self && typeof self.translation.canTranslate === 'function') {
-    try {
-      const checks = await Promise.all(allCodes.map(async (code) => {
-        if (code === 'en') return true;
-        try {
-          // Check if we can translate FROM this language TO English
-          const status = await self.translation.canTranslate({
-            sourceLanguage: code,
-            targetLanguage: 'en'
-          });
-          return status !== 'no';
-        } catch (e) {
-          return true; // Assume yes on error to be safe
-        }
-      }));
-      supportedCodes = allCodes.filter((_, i) => checks[i]);
-    } catch (e) {
-      console.log('Language availability check failed, showing all.');
-    }
-  }
-
-  // Load saved settings
+  // Load saved settings and render
   chrome.storage.local.get(['ignoredLanguages'], (result) => {
     const ignored = result.ignoredLanguages || [];
     
-    // Sort alphabetically by name
     const sortedLangs = supportedCodes.map(code => ({
       code,
       name: displayNames.of(code) || code
     })).sort((a, b) => a.name.localeCompare(b.name));
 
-    // Render Checkboxes
     ignoredListEl.innerHTML = '';
     sortedLangs.forEach(lang => {
       const label = document.createElement('label');
-      label.style.display = 'flex';
-      label.style.alignItems = 'center';
-      label.style.cursor = 'pointer';
-      label.title = lang.code; // Hover to see code
+      label.className = 'lang-item';
+      label.title = lang.code;
       
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.value = lang.code;
       checkbox.checked = ignored.includes(lang.code);
-      checkbox.style.marginRight = '8px';
       
       checkbox.addEventListener('change', () => {
         chrome.storage.local.get(['ignoredLanguages'], (current) => {
