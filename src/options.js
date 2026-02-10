@@ -8,9 +8,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   let browser = 'chrome'; 
   let name = 'Chrome / Chromium';
   const ua = navigator.userAgent;
-  if (ua.includes('Edg/')) { browser = 'edge'; name = 'Microsoft Edge'; }
-  else if (ua.includes('Brave')) { browser = 'brave'; name = 'Brave Browser'; }
-  else if (ua.includes('OPR/')) { browser = 'opera'; name = 'Opera'; }
+  if (ua.includes('Edg/')) { 
+    browser = 'edge'; 
+    name = 'Microsoft Edge'; 
+  } else if (ua.includes('Brave') || (navigator.brave && typeof navigator.brave.isBrave === 'function')) { 
+    browser = 'brave'; 
+    name = 'Brave Browser'; 
+  } else if (ua.includes('OPR/')) { 
+    browser = 'opera'; 
+    name = 'Opera'; 
+  }
 
   browserNameEl.textContent = name;
   prefixes.forEach(el => el.textContent = browser);

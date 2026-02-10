@@ -1,19 +1,29 @@
 let isTranslating = false;
-
-// We use a Map to track original text for nodes to ensure "Undo" is perfect
 const originalTexts = new Map();
 
+// Helper to check translation state
+function getTranslationState() {
+  return document.body.getAttribute('data-translatekit-state') || 'original';
+}
+
+function setTranslationState(state) {
+  document.body.setAttribute('data-translatekit-state', state);
+}
+
 function undoTranslation() {
+  if (getTranslationState() === 'original') return;
+  
   console.log('TranslateKit: Reverting to original text...');
   for (const [node, originalText] of originalTexts) {
     node.nodeValue = originalText;
   }
   originalTexts.clear();
+  setTranslationState('original');
   console.log('TranslateKit: Undo complete.');
 }
 
 async function translatePage() {
-  if (isTranslating) return;
+  if (isTranslating || getTranslationState() === 'translated') return;
   isTranslating = true;
 
   const settings = await new Promise(resolve => {
@@ -32,7 +42,6 @@ async function translatePage() {
 
   let finalSource = preferredSource;
 
-  // 1. Better Language Detection
   if (preferredSource === 'auto') {
     try {
       if ('LanguageDetector' in window) {
@@ -49,16 +58,8 @@ async function translatePage() {
   }
 
   if (finalSource.includes('-')) finalSource = finalSource.split('-')[0];
-  console.log(`TranslateKit: Translating ${finalSource} -> ${preferredTarget}`);
 
-  // Check if language is ignored
-  if (ignoredLanguages.includes(finalSource)) {
-    console.log(`TranslateKit: ${finalSource} is in the ignored list. Skipping.`);
-    isTranslating = false;
-    return;
-  }
-
-  if (finalSource === preferredTarget) {
+  if (ignoredLanguages.includes(finalSource) || finalSource === preferredTarget) {
     isTranslating = false;
     return;
   }
@@ -69,25 +70,16 @@ async function translatePage() {
       targetLanguage: preferredTarget
     });
 
-    // 2. Use TreeWalker to find ALL text nodes
     const walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: (node) => {
-          // Skip script, style, and hidden elements
           const parent = node.parentElement;
           if (!parent) return NodeFilter.FILTER_REJECT;
-          
           const tag = parent.tagName.toLowerCase();
-          if (['script', 'style', 'noscript', 'iframe', 'canvas'].includes(tag)) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          
-          // Skip if text is just whitespace or too short
-          const text = node.nodeValue.trim();
-          if (text.length < 2) return NodeFilter.FILTER_REJECT;
-          
+          if (['script', 'style', 'noscript', 'iframe', 'canvas'].includes(tag)) return NodeFilter.FILTER_REJECT;
+          if (node.nodeValue.trim().length < 2) return NodeFilter.FILTER_REJECT;
           return NodeFilter.FILTER_ACCEPT;
         }
       }
@@ -95,51 +87,40 @@ async function translatePage() {
 
     let node;
     const nodesToTranslate = [];
-    while (node = walker.nextNode()) {
-      nodesToTranslate.push(node);
-    }
+    while (node = walker.nextNode()) nodesToTranslate.push(node);
 
-    console.log(`TranslateKit: Found ${nodesToTranslate.length} text segments.`);
-
-    // 3. Translate nodes in chunks to avoid overwhelming the API
-    const chunkSize = 10;
+    const chunkSize = 15;
     for (let i = 0; i < nodesToTranslate.length; i += chunkSize) {
       const chunk = nodesToTranslate.slice(i, i + chunkSize);
-      
       await Promise.all(chunk.map(async (textNode) => {
         const originalText = textNode.nodeValue;
-        
-        // Save original if not already saved
         if (!originalTexts.has(textNode)) {
           originalTexts.set(textNode, originalText);
         }
-
         try {
           const translated = await translator.translate(originalText.trim());
-          // Preserve surrounding whitespace
           const leadingWs = originalText.match(/^\s*/)[0];
           const trailingWs = originalText.match(/\s*$/)[0];
           textNode.nodeValue = leadingWs + translated + trailingWs;
-        } catch (e) {
-          // Keep original on error
-        }
+        } catch (e) {}
       }));
     }
 
-    console.log('TranslateKit: Page translation complete.');
+    setTranslationState('translated');
+    console.log('TranslateKit: Translation complete.');
   } catch (error) {
-    console.error('TranslateKit: Translation engine error', error);
+    console.error('TranslateKit Error:', error);
   } finally {
     isTranslating = false;
   }
 }
 
-// Listeners
+// Global Message Listener
 chrome.runtime.onMessage.addListener((request) => {
   if (request.action === 'translate') translatePage();
   if (request.action === 'undo') undoTranslation();
   if (request.action === 'toggle') {
-    if (originalTexts.size > 0) {
+    if (getTranslationState() === 'translated') {
       undoTranslation();
     } else {
       translatePage();
@@ -147,6 +128,7 @@ chrome.runtime.onMessage.addListener((request) => {
   }
 });
 
+// Auto-run logic
 (async () => {
   await new Promise(r => setTimeout(r, 1500));
   const skipDomains = ['google.com', 'youtube.com', 'github.com', 'localhost'];
