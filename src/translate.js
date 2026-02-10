@@ -1,5 +1,11 @@
 let isTranslating = false;
-const originalTexts = new Map();
+
+// We use WeakMap for caching. This prevents memory leaks as entries are 
+// automatically removed if the DOM node is destroyed.
+const nodeCache = new WeakMap(); 
+
+// We use a Set to track which nodes are CURRENTLY translated so we can undo them.
+let currentlyTranslatedNodes = new Set();
 
 // --- UI HELPERS ---
 let statusEl = null;
@@ -35,7 +41,7 @@ function showStatus(message, subtext = '') {
 function hideStatus(delay = 2000) {
   if (statusEl) {
     setTimeout(() => {
-      statusEl.style.opacity = '0';
+      if (statusEl) statusEl.style.opacity = '0';
       setTimeout(() => {
         if (statusEl && statusEl.parentNode) statusEl.parentNode.removeChild(statusEl);
         statusEl = null;
@@ -57,10 +63,15 @@ function undoTranslation() {
   if (getTranslationState() === 'original') return;
   
   showStatus('Restoring original text...');
-  for (const [node, originalText] of originalTexts) {
-    node.nodeValue = originalText;
+  
+  for (const node of currentlyTranslatedNodes) {
+    const cache = nodeCache.get(node);
+    if (cache) {
+      node.nodeValue = cache.original;
+    }
   }
-  originalTexts.clear();
+  
+  currentlyTranslatedNodes.clear();
   setTranslationState('original');
   hideStatus(1000);
 }
@@ -69,9 +80,7 @@ function undoTranslation() {
 async function translatePage() {
   if (isTranslating || getTranslationState() === 'translated') return;
   isTranslating = true;
-  showStatus('Initializing TranslateKit...');
 
-  // 1. Get Settings
   const settings = await new Promise(resolve => {
     chrome.storage.local.get(['sourceLang', 'targetLang', 'ignoredLanguages'], resolve);
   });
@@ -80,56 +89,37 @@ async function translatePage() {
   const preferredTarget = settings.targetLang || 'en';
   const ignoredLanguages = settings.ignoredLanguages || [];
 
-  // 2. Check API Availability
   if (!('Translator' in window)) {
     showStatus('Error: API not found', 'Check brave://flags');
     isTranslating = false;
     return;
   }
 
-  // 3. Detect Language
   let finalSource = preferredSource;
   if (preferredSource === 'auto') {
     showStatus('Detecting language...');
     try {
       const canDetect = window.LanguageDetector ? await window.LanguageDetector.availability() : 'no';
-      
       if (canDetect !== 'no') {
         const detector = await window.LanguageDetector.create();
         const pageText = document.body.innerText.substring(0, 2000);
         const results = await detector.detect(pageText);
-        if (results && results.length > 0) {
-          finalSource = results[0].detectedLanguage;
-        }
+        if (results && results.length > 0) finalSource = results[0].detectedLanguage;
       } else {
         finalSource = document.documentElement.lang || 'de';
       }
     } catch (e) {
-      console.warn('Detection failed:', e);
       finalSource = document.documentElement.lang || 'de';
     }
   }
 
   if (finalSource.includes('-')) finalSource = finalSource.split('-')[0];
 
-  // 4. Checks (Ignore List & Same Language)
-  if (ignoredLanguages.includes(finalSource)) {
-    showStatus('Language ignored', `Skipping ${finalSource}`);
-    hideStatus();
+  if (ignoredLanguages.includes(finalSource) || finalSource === preferredTarget) {
     isTranslating = false;
     return;
   }
 
-  if (finalSource === preferredTarget) {
-    showStatus('Already in target language');
-    hideStatus();
-    isTranslating = false;
-    return;
-  }
-
-  // 5. Create Translator (With Download Progress)
-  showStatus('Preparing translator', `${finalSource} → ${preferredTarget}`);
-  
   try {
     const translator = await window.Translator.create({
       sourceLanguage: finalSource,
@@ -137,17 +127,14 @@ async function translatePage() {
       monitor(m) {
         m.addEventListener('downloadprogress', (e) => {
           const percent = Math.round((e.loaded / e.total) * 100);
-          showStatus('Downloading AI Model', `${percent}% completed. This happens once.`);
+          showStatus('Downloading AI Model', `${percent}% completed...`);
         });
       }
     });
 
-    // Handle new API pattern (waiting for ready)
     if (translator.ready) await translator.ready;
 
-    // 6. Translate Content
-    showStatus('Translating page...');
-    
+    showStatus('Scanning page...');
     const walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_TEXT,
@@ -169,35 +156,51 @@ async function translatePage() {
 
     const total = nodesToTranslate.length;
     let count = 0;
+    let cachedCount = 0;
     const chunkSize = 20;
 
     for (let i = 0; i < total; i += chunkSize) {
       const chunk = nodesToTranslate.slice(i, i + chunkSize);
       
       await Promise.all(chunk.map(async (textNode) => {
-        const originalText = textNode.nodeValue;
-        if (!originalTexts.has(textNode)) {
-          originalTexts.set(textNode, originalText);
+        const currentText = textNode.nodeValue;
+        const cache = nodeCache.get(textNode);
+
+        // CHECK CACHE: If we have this node translated to THIS target language
+        // and the original text hasn't changed.
+        if (cache && cache.original === currentText && cache.translations[preferredTarget]) {
+          textNode.nodeValue = cache.translations[preferredTarget];
+          currentlyTranslatedNodes.add(textNode);
+          cachedCount++;
+          return;
         }
+
+        // NO CACHE: Proceed to translate
         try {
-          const translated = await translator.translate(originalText.trim());
-          const leadingWs = originalText.match(/^\s*/)[0];
-          const trailingWs = originalText.match(/\s*$/)[0];
-          textNode.nodeValue = leadingWs + translated + trailingWs;
+          const translated = await translator.translate(currentText.trim());
+          const leadingWs = currentText.match(/^\s*/)[0];
+          const trailingWs = currentText.match(/\s*$/)[0];
+          const fullTranslated = leadingWs + translated + trailingWs;
+
+          // Update cache
+          const newCache = cache || { original: currentText, translations: {} };
+          newCache.translations[preferredTarget] = fullTranslated;
+          nodeCache.set(textNode, newCache);
+
+          textNode.nodeValue = fullTranslated;
+          currentlyTranslatedNodes.add(textNode);
           count++;
         } catch (e) {}
       }));
       
-      // Update progress sparingly
       if (i % 100 === 0) showStatus('Translating...', `${Math.round((i / total) * 100)}%`);
     }
 
     setTranslationState('translated');
-    showStatus('Translation Complete', `${count} elements translated`);
+    showStatus('Translation Complete', cachedCount > 0 ? `${count} new, ${cachedCount} cached` : `${count} elements translated`);
     hideStatus(3000);
 
   } catch (error) {
-    console.error('TranslateKit Error:', error);
     showStatus('Translation Failed', error.message || 'Unknown error');
     hideStatus(5000);
   } finally {
@@ -207,7 +210,6 @@ async function translatePage() {
 
 // --- LISTENERS ---
 
-// Global Message Listener
 chrome.runtime.onMessage.addListener((request) => {
   if (request.action === 'translate') translatePage();
   if (request.action === 'undo') undoTranslation();
@@ -220,7 +222,6 @@ chrome.runtime.onMessage.addListener((request) => {
   }
 });
 
-// Custom Hotkey Listener
 window.addEventListener('keydown', async (e) => {
   const result = await new Promise(r => chrome.storage.local.get(['customShortcut'], r));
   const shortcut = result.customShortcut || { key: 't', altKey: true, ctrlKey: false, shiftKey: false, metaKey: false };
@@ -241,7 +242,6 @@ window.addEventListener('keydown', async (e) => {
   }
 });
 
-// Auto-run logic
 (async () => {
   await new Promise(r => setTimeout(r, 1500));
   const skipDomains = ['google.com', 'youtube.com', 'github.com', 'localhost'];
