@@ -9,8 +9,8 @@ function showStatus(message, subtext = '') {
     statusEl = document.createElement('div');
     Object.assign(statusEl.style, {
       position: 'fixed',
-      bottom: '20px',
-      right: '20px',
+      top: '20px',
+      left: '20px',
       padding: '12px 16px',
       background: '#222',
       color: '#fff',
