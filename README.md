@@ -34,5 +34,8 @@ For the extension to work, you must enable the experimental Translation APIs in 
 ## ⌨️ Shortcuts
 - **Translate Page:** `Alt + T` (Customizable at `brave://extensions/shortcuts`)
 
+## 🛠 Support & Feedback
+If you encounter any issues or have suggestions, please **[open a GitHub Issue](https://github.com/e-kotov/OfflineTranslateKitAITranslator/issues)**. This is the preferred way to get help and keep your privacy protected.
+
 ## ⚖️ License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
