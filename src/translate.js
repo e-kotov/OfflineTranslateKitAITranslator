@@ -1,7 +1,50 @@
 let isTranslating = false;
 const originalTexts = new Map();
 
-// Helper to check translation state
+// --- UI HELPERS ---
+let statusEl = null;
+
+function showStatus(message, subtext = '') {
+  if (!statusEl) {
+    statusEl = document.createElement('div');
+    Object.assign(statusEl.style, {
+      position: 'fixed',
+      bottom: '20px',
+      right: '20px',
+      padding: '12px 16px',
+      background: '#222',
+      color: '#fff',
+      borderRadius: '8px',
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '14px',
+      zIndex: '2147483647',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      transition: 'opacity 0.3s',
+      maxWidth: '300px'
+    });
+    document.body.appendChild(statusEl);
+  }
+  
+  statusEl.innerHTML = `
+    <div style="font-weight:600; margin-bottom:4px">${message}</div>
+    ${subtext ? `<div style="font-size:12px; opacity:0.8">${subtext}</div>` : ''}
+  `;
+  statusEl.style.opacity = '1';
+}
+
+function hideStatus(delay = 2000) {
+  if (statusEl) {
+    setTimeout(() => {
+      statusEl.style.opacity = '0';
+      setTimeout(() => {
+        if (statusEl && statusEl.parentNode) statusEl.parentNode.removeChild(statusEl);
+        statusEl = null;
+      }, 300);
+    }, delay);
+  }
+}
+
+// --- STATE MANAGEMENT ---
 function getTranslationState() {
   return document.body.getAttribute('data-translatekit-state') || 'original';
 }
@@ -13,19 +56,22 @@ function setTranslationState(state) {
 function undoTranslation() {
   if (getTranslationState() === 'original') return;
   
-  console.log('TranslateKit: Reverting to original text...');
+  showStatus('Restoring original text...');
   for (const [node, originalText] of originalTexts) {
     node.nodeValue = originalText;
   }
   originalTexts.clear();
   setTranslationState('original');
-  console.log('TranslateKit: Undo complete.');
+  hideStatus(1000);
 }
 
+// --- MAIN TRANSLATION LOGIC ---
 async function translatePage() {
   if (isTranslating || getTranslationState() === 'translated') return;
   isTranslating = true;
+  showStatus('Initializing TranslateKit...');
 
+  // 1. Get Settings
   const settings = await new Promise(resolve => {
     chrome.storage.local.get(['sourceLang', 'targetLang', 'ignoredLanguages'], resolve);
   });
@@ -34,42 +80,74 @@ async function translatePage() {
   const preferredTarget = settings.targetLang || 'en';
   const ignoredLanguages = settings.ignoredLanguages || [];
 
+  // 2. Check API Availability
   if (!('Translator' in window)) {
-    console.log('TranslateKit: Translation API not available.');
+    showStatus('Error: API not found', 'Check brave://flags');
     isTranslating = false;
     return;
   }
 
+  // 3. Detect Language
   let finalSource = preferredSource;
-
   if (preferredSource === 'auto') {
+    showStatus('Detecting language...');
     try {
-      if ('LanguageDetector' in window) {
-        const detector = await LanguageDetector.create();
+      const canDetect = window.LanguageDetector ? await window.LanguageDetector.availability() : 'no';
+      
+      if (canDetect !== 'no') {
+        const detector = await window.LanguageDetector.create();
         const pageText = document.body.innerText.substring(0, 2000);
         const results = await detector.detect(pageText);
-        finalSource = results[0].detectedLanguage;
+        if (results && results.length > 0) {
+          finalSource = results[0].detectedLanguage;
+        }
       } else {
         finalSource = document.documentElement.lang || 'de';
       }
     } catch (e) {
+      console.warn('Detection failed:', e);
       finalSource = document.documentElement.lang || 'de';
     }
   }
 
   if (finalSource.includes('-')) finalSource = finalSource.split('-')[0];
 
-  if (ignoredLanguages.includes(finalSource) || finalSource === preferredTarget) {
+  // 4. Checks (Ignore List & Same Language)
+  if (ignoredLanguages.includes(finalSource)) {
+    showStatus('Language ignored', `Skipping ${finalSource}`);
+    hideStatus();
     isTranslating = false;
     return;
   }
 
+  if (finalSource === preferredTarget) {
+    showStatus('Already in target language');
+    hideStatus();
+    isTranslating = false;
+    return;
+  }
+
+  // 5. Create Translator (With Download Progress)
+  showStatus('Preparing translator', `${finalSource} → ${preferredTarget}`);
+  
   try {
-    const translator = await Translator.create({
+    const translator = await window.Translator.create({
       sourceLanguage: finalSource,
-      targetLanguage: preferredTarget
+      targetLanguage: preferredTarget,
+      monitor(m) {
+        m.addEventListener('downloadprogress', (e) => {
+          const percent = Math.round((e.loaded / e.total) * 100);
+          showStatus('Downloading AI Model', `${percent}% completed. This happens once.`);
+        });
+      }
     });
 
+    // Handle new API pattern (waiting for ready)
+    if (translator.ready) await translator.ready;
+
+    // 6. Translate Content
+    showStatus('Translating page...');
+    
     const walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_TEXT,
@@ -89,9 +167,13 @@ async function translatePage() {
     const nodesToTranslate = [];
     while (node = walker.nextNode()) nodesToTranslate.push(node);
 
-    const chunkSize = 15;
-    for (let i = 0; i < nodesToTranslate.length; i += chunkSize) {
+    const total = nodesToTranslate.length;
+    let count = 0;
+    const chunkSize = 20;
+
+    for (let i = 0; i < total; i += chunkSize) {
       const chunk = nodesToTranslate.slice(i, i + chunkSize);
+      
       await Promise.all(chunk.map(async (textNode) => {
         const originalText = textNode.nodeValue;
         if (!originalTexts.has(textNode)) {
@@ -102,18 +184,28 @@ async function translatePage() {
           const leadingWs = originalText.match(/^\s*/)[0];
           const trailingWs = originalText.match(/\s*$/)[0];
           textNode.nodeValue = leadingWs + translated + trailingWs;
+          count++;
         } catch (e) {}
       }));
+      
+      // Update progress sparingly
+      if (i % 100 === 0) showStatus('Translating...', `${Math.round((i / total) * 100)}%`);
     }
 
     setTranslationState('translated');
-    console.log('TranslateKit: Translation complete.');
+    showStatus('Translation Complete', `${count} elements translated`);
+    hideStatus(3000);
+
   } catch (error) {
     console.error('TranslateKit Error:', error);
+    showStatus('Translation Failed', error.message || 'Unknown error');
+    hideStatus(5000);
   } finally {
     isTranslating = false;
   }
 }
+
+// --- LISTENERS ---
 
 // Global Message Listener
 chrome.runtime.onMessage.addListener((request) => {
