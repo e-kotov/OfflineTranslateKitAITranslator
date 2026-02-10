@@ -128,6 +128,27 @@ chrome.runtime.onMessage.addListener((request) => {
   }
 });
 
+// Custom Hotkey Listener
+window.addEventListener('keydown', async (e) => {
+  const result = await new Promise(r => chrome.storage.local.get(['customShortcut'], r));
+  const shortcut = result.customShortcut || { key: 't', altKey: true, ctrlKey: false, shiftKey: false, metaKey: false };
+
+  if (
+    e.key.toLowerCase() === shortcut.key &&
+    e.ctrlKey === !!shortcut.ctrlKey &&
+    e.altKey === !!shortcut.altKey &&
+    e.shiftKey === !!shortcut.shiftKey &&
+    e.metaKey === !!shortcut.metaKey
+  ) {
+    e.preventDefault();
+    if (getTranslationState() === 'translated') {
+      undoTranslation();
+    } else {
+      translatePage();
+    }
+  }
+});
+
 // Auto-run logic
 (async () => {
   await new Promise(r => setTimeout(r, 1500));

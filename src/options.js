@@ -30,6 +30,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     'ur', 'vi', 'zh'
   ];
 
+  // Shortcut Recording Logic
+  const shortcutDisplay = document.getElementById('shortcutDisplay');
+  const recordBtn = document.getElementById('recordShortcutBtn');
+  let isRecording = false;
+
+  chrome.storage.local.get(['customShortcut'], (result) => {
+    if (result.customShortcut) {
+      shortcutDisplay.textContent = result.customShortcut.display;
+    }
+  });
+
+  recordBtn.addEventListener('click', () => {
+    isRecording = true;
+    recordBtn.textContent = 'Press keys...';
+    shortcutDisplay.textContent = '---';
+    recordBtn.style.background = '#4285f4';
+    recordBtn.style.color = '#fff';
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (!isRecording) return;
+    
+    // Ignore lonely modifier keys
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+
+    e.preventDefault();
+    
+    const parts = [];
+    if (e.ctrlKey) parts.push('Ctrl');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    if (e.metaKey) parts.push('Meta');
+    parts.push(e.key.toUpperCase());
+
+    const shortcut = {
+      display: parts.join('+'),
+      key: e.key.toLowerCase(),
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      shiftKey: e.shiftKey,
+      metaKey: e.metaKey
+    };
+
+    chrome.storage.local.set({ customShortcut: shortcut }, () => {
+      shortcutDisplay.textContent = shortcut.display;
+      recordBtn.textContent = 'Record New';
+      recordBtn.style.background = '#fff';
+      recordBtn.style.color = '#4285f4';
+      isRecording = false;
+      showToast('Shortcut saved!');
+    });
+  });
+
   const displayNames = new Intl.DisplayNames(['en'], { type: 'language' });
   let supportedCodes = allCodes;
   
