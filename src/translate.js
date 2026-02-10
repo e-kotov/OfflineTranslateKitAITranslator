@@ -39,11 +39,14 @@ function setTranslationState(state) {
 }
 
 function undoTranslation() {
-  if (getTranslationState() === 'original') return;
+  if (getTranslationState() === 'original' && currentlyTranslatedNodes.size === 0) return;
+  
   showStatus('Restoring original text...');
   for (const node of currentlyTranslatedNodes) {
     const cache = nodeCache.get(node);
-    if (cache) node.nodeValue = cache.original;
+    if (cache) {
+      node.nodeValue = cache.original;
+    }
   }
   currentlyTranslatedNodes.clear();
   setTranslationState('original');
@@ -51,17 +54,12 @@ function undoTranslation() {
 }
 
 async function translatePage(options = {}) {
-  // If not forcing, don't re-run on already translated pages
+  // If already translated and not forcing, do nothing
   if (isTranslating || (!options.force && getTranslationState() === 'translated')) return;
   
   isTranslating = true;
-  
-  if (options.force) {
-    showStatus('Force Retranslating...', 'Scanning for new content');
-    // We don't clear the WeakMap (impossible), but we ignore it by setting state back
-    setTranslationState('original'); 
-  }
 
+  // 1. Get Settings
   const settings = await new Promise(resolve => {
     chrome.storage.local.get(['sourceLang', 'targetLang', 'ignoredLanguages'], resolve);
   });
@@ -76,30 +74,21 @@ async function translatePage(options = {}) {
     return;
   }
 
+  // 2. Resolve Language
   let finalSource = preferredSource;
   if (preferredSource === 'auto') {
+    showStatus('Detecting language...');
     try {
       const canDetect = window.LanguageDetector ? await window.LanguageDetector.availability() : 'no';
       if (canDetect !== 'no') {
         const detector = await window.LanguageDetector.create();
         const results = await detector.detect(document.body.innerText.substring(0, 2000));
-        if (results && results.length > 0) {
-          finalSource = results[0].detectedLanguage;
-        }
+        if (results && results.length > 0) finalSource = results[0].detectedLanguage;
       }
-    } catch (e) {
-      console.warn('TranslateKit: Detection error', e);
-    }
+    } catch (e) {}
 
-    // Fallback 1: HTML lang attribute
     if (!finalSource || finalSource === 'auto') {
-      finalSource = document.documentElement.lang || document.body.parentElement.lang;
-    }
-
-    // Fallback 2: Default to German if still unknown (Translator.create requires a valid tag)
-    if (!finalSource || finalSource === 'auto' || finalSource.length < 2) {
-      console.log('TranslateKit: Could not detect language, falling back to "de"');
-      finalSource = 'de';
+      finalSource = document.documentElement.lang || 'de';
     }
   }
 
@@ -112,16 +101,20 @@ async function translatePage(options = {}) {
 
   try {
     const translator = await window.Translator.create({
-      sourceLanguage: finalSource, targetLanguage: preferredTarget,
+      sourceLanguage: finalSource,
+      targetLanguage: preferredTarget,
       monitor(m) {
         m.addEventListener('downloadprogress', (e) => {
-          showStatus('Downloading AI Model', `${Math.round((e.loaded / e.total) * 100)}% completed...`);
+          const percent = Math.round((e.loaded / e.total) * 100);
+          showStatus('Downloading AI Model', `${percent}% completed...`);
         });
       }
     });
 
     if (translator.ready) await translator.ready;
 
+    showStatus(options.force ? 'Force Retranslating...' : 'Scanning page...');
+    
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode: (node) => {
         const parent = node.parentElement;
@@ -145,8 +138,13 @@ async function translatePage(options = {}) {
         const currentText = textNode.nodeValue;
         const cache = nodeCache.get(textNode);
 
-        // If forcing, we skip cache and translate again
-        if (!options.force && cache && cache.original === currentText && cache.translations[preferredTarget]) {
+        // --- SOURCE SELECTION ---
+        // If we have a cache (it was translated before), use the ORIGINAL text as source
+        // If no cache, this is a new node, use current text as source
+        const sourceText = cache ? cache.original : currentText;
+
+        // SKIP CACHE CHECK if forcing
+        if (!options.force && cache && cache.translations[preferredTarget]) {
           textNode.nodeValue = cache.translations[preferredTarget];
           currentlyTranslatedNodes.add(textNode);
           cachedCount++;
@@ -154,16 +152,15 @@ async function translatePage(options = {}) {
         }
 
         try {
-          const translated = await translator.translate(currentText.trim());
-          const leadingWs = currentText.match(/^\s*/)[0];
-          const trailingWs = currentText.match(/\s*$/)[0];
+          const translated = await translator.translate(sourceText.trim());
+          const leadingWs = sourceText.match(/^\s*/)[0];
+          const trailingWs = sourceText.match(/\s*$/)[0];
           const fullTranslated = leadingWs + translated + trailingWs;
 
-          const newCache = (options.force ? null : cache) || { original: currentText, translations: {} };
-          if (newCache) {
-            newCache.translations[preferredTarget] = fullTranslated;
-            nodeCache.set(textNode, newCache);
-          }
+          // Update/Create cache
+          const newCache = cache || { original: sourceText, translations: {} };
+          newCache.translations[preferredTarget] = fullTranslated;
+          nodeCache.set(textNode, newCache);
 
           textNode.nodeValue = fullTranslated;
           currentlyTranslatedNodes.add(textNode);
@@ -176,6 +173,7 @@ async function translatePage(options = {}) {
     setTranslationState('translated');
     showStatus('Translation Complete', cachedCount > 0 ? `${count} new, ${cachedCount} cached` : `${count} elements translated`);
     hideStatus(2000);
+
   } catch (error) {
     showStatus('Translation Failed', error.message);
     hideStatus(5000);
@@ -184,8 +182,10 @@ async function translatePage(options = {}) {
   }
 }
 
+// --- LISTENERS ---
+
 chrome.runtime.onMessage.addListener((request) => {
-  if (request.action === 'translate') translatePage({ force: request.force || false });
+  if (request.action === 'translate') translatePage({ force: request.force });
   if (request.action === 'undo') undoTranslation();
   if (request.action === 'toggle') {
     if (getTranslationState() === 'translated') undoTranslation();
