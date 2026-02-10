@@ -1,58 +1,74 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const browserNameEl = document.getElementById('browserName');
   const prefixes = document.querySelectorAll('.prefix');
-  const urlContainers = document.querySelectorAll('.url-container');
+  const ignoredListEl = document.getElementById('ignoredLanguagesList');
   const toast = document.getElementById('toast');
 
   // 1. Detect Browser
-  let browser = 'chrome'; // Default
+  let browser = 'chrome'; 
   let name = 'Chrome / Chromium';
-
   const ua = navigator.userAgent;
-  if (ua.includes('Edg/')) {
-    browser = 'edge';
-    name = 'Microsoft Edge';
-  } else if (ua.includes('Brave') || (navigator.brave && typeof navigator.brave.isBrave === 'function')) {
-    browser = 'brave';
-    name = 'Brave Browser';
-  } else if (ua.includes('OPR/') || ua.includes('Opera')) {
-    browser = 'opera';
-    name = 'Opera';
-  } else if (ua.includes('Vivaldi')) {
-    browser = 'vivaldi';
-    name = 'Vivaldi';
-  }
+  if (ua.includes('Edg/')) { browser = 'edge'; name = 'Microsoft Edge'; }
+  else if (ua.includes('Brave')) { browser = 'brave'; name = 'Brave Browser'; }
+  else if (ua.includes('OPR/')) { browser = 'opera'; name = 'Opera'; }
 
-  // Update UI
   browserNameEl.textContent = name;
-  prefixes.forEach(el => {
-    el.textContent = browser;
-  });
+  prefixes.forEach(el => el.textContent = browser);
 
-  // 2. Ignored Languages Logic
-  const languages = [
-    { code: 'en', name: 'English' },
-    { code: 'de', name: 'German' },
-    { code: 'fr', name: 'French' },
-    { code: 'es', name: 'Spanish' },
-    { code: 'it', name: 'Italian' },
-    { code: 'pt', name: 'Portuguese' },
-    { code: 'ru', name: 'Russian' },
-    { code: 'zh', name: 'Chinese' },
-    { code: 'ja', name: 'Japanese' },
-    { code: 'ko', name: 'Korean' }
+  // 2. Build Language List
+  // Standard list of languages often supported by on-device models
+  const allCodes = [
+    'ar', 'bg', 'bn', 'ca', 'cs', 'da', 'de', 'el', 'en', 'es', 'et', 'fa', 'fi', 'fr', 'gu', 
+    'he', 'hi', 'hr', 'hu', 'id', 'it', 'ja', 'kn', 'ko', 'lt', 'lv', 'ml', 'mr', 'ms', 'nl', 
+    'no', 'pl', 'pt', 'ro', 'ru', 'sk', 'sl', 'sr', 'sv', 'sw', 'ta', 'te', 'th', 'tr', 'uk', 
+    'ur', 'vi', 'zh'
   ];
 
-  const ignoredListEl = document.getElementById('ignoredLanguagesList');
+  // Helper to get nice names (e.g. "en" -> "English")
+  const displayNames = new Intl.DisplayNames(['en'], { type: 'language' });
+
+  // Filter supported languages (if API is available)
+  let supportedCodes = allCodes;
   
+  if ('translation' in self && typeof self.translation.canTranslate === 'function') {
+    try {
+      const checks = await Promise.all(allCodes.map(async (code) => {
+        if (code === 'en') return true;
+        try {
+          // Check if we can translate FROM this language TO English
+          const status = await self.translation.canTranslate({
+            sourceLanguage: code,
+            targetLanguage: 'en'
+          });
+          return status !== 'no';
+        } catch (e) {
+          return true; // Assume yes on error to be safe
+        }
+      }));
+      supportedCodes = allCodes.filter((_, i) => checks[i]);
+    } catch (e) {
+      console.log('Language availability check failed, showing all.');
+    }
+  }
+
+  // Load saved settings
   chrome.storage.local.get(['ignoredLanguages'], (result) => {
     const ignored = result.ignoredLanguages || [];
     
-    languages.forEach(lang => {
+    // Sort alphabetically by name
+    const sortedLangs = supportedCodes.map(code => ({
+      code,
+      name: displayNames.of(code) || code
+    })).sort((a, b) => a.name.localeCompare(b.name));
+
+    // Render Checkboxes
+    ignoredListEl.innerHTML = '';
+    sortedLangs.forEach(lang => {
       const label = document.createElement('label');
       label.style.display = 'flex';
       label.style.alignItems = 'center';
       label.style.cursor = 'pointer';
+      label.title = lang.code; // Hover to see code
       
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
@@ -78,35 +94,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 3. Click-to-Copy Functionality
-  urlContainers.forEach(container => {
+  // 3. Click-to-Copy
+  document.querySelectorAll('.url-container').forEach(container => {
     container.addEventListener('click', () => {
       const path = container.getAttribute('data-url');
       const fullUrl = `${browser}://${path}`;
-
-      // Copy to clipboard
       navigator.clipboard.writeText(fullUrl).then(() => {
         showToast(`Copied: ${fullUrl}`);
       });
-      
-      // Attempt to open (most browsers block this, but some might allow it for extensions)
-      // We try it anyway just in case the browser allows specific internal pages.
-      try {
-        if (typeof chrome !== 'undefined' && chrome.tabs) {
-           // This usually fails for flags/internals, but works for some sub-pages
-           // chrome.tabs.create({ url: fullUrl }); 
-        }
-      } catch (e) {
-        // fail silently
-      }
     });
   });
 
   function showToast(message) {
     toast.textContent = message;
     toast.style.display = 'block';
-    setTimeout(() => {
-      toast.style.display = 'none';
-    }, 2000);
+    setTimeout(() => { toast.style.display = 'none'; }, 2000);
   }
 });
